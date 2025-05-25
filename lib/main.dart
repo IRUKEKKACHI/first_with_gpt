@@ -29,14 +29,16 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> {
   TextEditingController messageTextController = TextEditingController();
-
   static const String _kStrings = "YdMinS ChatGPT";
 
   String get _currentString => _kStrings;
 
+  ScrollController scrollController = ScrollController();
+
   @override
   void dispose() {
     messageTextController.dispose();
+    scrollController.dispose();
 
     super.dispose();
   }
@@ -78,9 +80,50 @@ class _MyHomePageState extends State<MyHomePage> {
               ),
               Expanded(
                 child: Container(
-                  color: Colors.blue,
-                  child: Center(
-                    child: Text(_kStrings),
+                  //color: Colors.blue,
+                  child: ListView.builder(
+                    itemCount: 100,
+                    itemBuilder: (context, index) {
+                      if (index % 2 == 0) {
+                        return Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16.0),
+                          child: Row(
+                            children: [
+                              CircleAvatar(),
+                              SizedBox(
+                                width: 8,
+                              ),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text('User'),
+                                    Text('message'),
+                                  ],
+                                ),
+                              )
+                            ],
+                          ),
+                        );
+                      }
+                      return Row(
+                        children: [
+                          CircleAvatar(
+                            backgroundColor: Colors.teal,
+                          ),
+                          SizedBox(width: 8.0),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text("ChatGPT"),
+                                Text("message by ChatGPT"),
+                              ],
+                            ),
+                          )
+                        ],
+                      );
+                    },
                   ),
                 ),
               ),
