@@ -27,13 +27,46 @@ class MyHomePage extends StatefulWidget {
   State<MyHomePage> createState() => _MyHomePageState();
 }
 
-class _MyHomePageState extends State<MyHomePage> {
+class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   TextEditingController messageTextController = TextEditingController();
   static const String _kStrings = "YdMinS ChatGPT";
 
   String get _currentString => _kStrings;
 
   ScrollController scrollController = ScrollController();
+  late Animation<int> _characterCount;
+  late AnimationController animationController;
+
+  setupAnimation() {
+    animationController = AnimationController(
+      vsync: this,
+      duration: Duration(milliseconds: 2500),
+    );
+    _characterCount = StepTween(begin: 0, end: _currentString.length).animate(
+      CurvedAnimation(parent: animationController, curve: Curves.easeIn),
+    );
+    animationController.addListener(() {
+      setState(() {});
+    });
+    animationController.addStatusListener((staus) {
+      if (staus == AnimationStatus.completed) {
+        Future.delayed(Duration(seconds: 1)).then((value) {
+          animationController.reverse();
+        });
+      } else if (staus == AnimationStatus.dismissed) {
+        Future.delayed(Duration(seconds: 1)).then((value) {
+          animationController.forward();
+        });
+      }
+    });
+    animationController.forward();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    setupAnimation();
+  }
 
   @override
   void dispose() {
@@ -79,51 +112,74 @@ class _MyHomePageState extends State<MyHomePage> {
                 ),
               ),
               Expanded(
-                child: Container(
-                  //color: Colors.blue,
-                  child: ListView.builder(
-                    itemCount: 100,
-                    itemBuilder: (context, index) {
-                      if (index % 2 == 0) {
-                        return Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16.0),
-                          child: Row(
-                            children: [
-                              CircleAvatar(),
-                              SizedBox(
-                                width: 8,
-                              ),
-                              Expanded(
-                                child: Column(
-                                  crossAxisAlignment: CrossAxisAlignment.start,
-                                  children: [
-                                    Text('User'),
-                                    Text('message'),
-                                  ],
-                                ),
-                              )
-                            ],
-                          ),
-                        );
-                      }
+                child: Center(
+                  child: AnimatedBuilder(
+                    animation: _characterCount,
+                    builder: (BuildContext context, Widget? chi) {
+                      String text =
+                          _currentString.substring(0, _characterCount.value);
                       return Row(
+                        mainAxisSize: MainAxisSize.min,
                         children: [
-                          CircleAvatar(
-                            backgroundColor: Colors.teal,
-                          ),
-                          SizedBox(width: 8.0),
-                          Expanded(
-                            child: Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text("ChatGPT"),
-                                Text("message by ChatGPT"),
-                              ],
+                          Text(
+                            text,
+                            style: TextStyle(
+                              fontWeight: FontWeight.bold,
+                              fontSize: 24,
                             ),
+                          ),
+                          CircleAvatar(
+                            radius: 8,
+                            backgroundColor: Colors.orange[200],
                           )
                         ],
                       );
                     },
+                    //color: Colors.blue,
+                    // child: ListView.builder(
+                    //   itemCount: 100,
+                    //   itemBuilder: (context, index) {
+                    //     if (index % 2 == 0) {
+                    //       return Padding(
+                    //         padding: const EdgeInsets.symmetric(vertical: 16.0),
+                    //         child: Row(
+                    //           children: [
+                    //             CircleAvatar(),
+                    //             SizedBox(
+                    //               width: 8,
+                    //             ),
+                    //             Expanded(
+                    //               child: Column(
+                    //                 crossAxisAlignment: CrossAxisAlignment.start,
+                    //                 children: [
+                    //                   Text('User'),
+                    //                   Text('message'),
+                    //                 ],
+                    //               ),
+                    //             )
+                    //           ],
+                    //         ),
+                    //       );
+                    //     }
+                    //     return Row(
+                    //       children: [
+                    //         CircleAvatar(
+                    //           backgroundColor: Colors.teal,
+                    //         ),
+                    //         SizedBox(width: 8.0),
+                    //         Expanded(
+                    //           child: Column(
+                    //             crossAxisAlignment: CrossAxisAlignment.start,
+                    //             children: [
+                    //               Text("ChatGPT"),
+                    //               Text("message by ChatGPT"),
+                    //             ],
+                    //           ),
+                    //         )
+                    //       ],
+                    //     );
+                    //   },
+                    // ),
                   ),
                 ),
               ),
