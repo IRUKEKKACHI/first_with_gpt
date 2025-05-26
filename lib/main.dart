@@ -1,4 +1,9 @@
+import 'dart:convert';
+
 import 'package:flutter/material.dart';
+import 'package:first_with_chatgpt/model/open_ai_model.dart';
+import 'package:http/http.dart' as http;
+import 'package:rxdart/rxdart.dart';
 
 void main() {
   runApp(FirstWithGPT());
@@ -29,6 +34,11 @@ class MyHomePage extends StatefulWidget {
 
 class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   TextEditingController messageTextController = TextEditingController();
+  final List<Message> _historyList = List.empty(growable: true);
+
+  String apiKey = '0909090';
+  String streamText = '';
+
   static const String _kStrings = "YdMinS ChatGPT";
 
   String get _currentString => _kStrings;
@@ -36,6 +46,14 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
   ScrollController scrollController = ScrollController();
   late Animation<int> _characterCount;
   late AnimationController animationController;
+
+  void _scrollDown() {
+    scrollController.animateTo(
+      scrollController.position.maxScrollExtent,
+      duration: Duration(milliseconds: 350),
+      curve: Curves.fastOutSlowIn,
+    );
+  }
 
   setupAnimation() {
     animationController = AnimationController(
@@ -62,6 +80,93 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     animationController.forward();
   }
 
+  Future requestChat(String text) async {
+    ChatCompletionModel openAiModel = ChatCompletionModel(
+        model: 'gpt-3.5-turbo',
+        messages: [
+          Message(role: "system", content: "You are a helpful assistant."),
+          ..._historyList,
+        ],
+        stream: false);
+    final url = Uri.http("api.openai.com", "/v1/chat/completions");
+    final resp = await http.post(
+      url,
+      headers: {
+        "Authorization": "Bearer $apiKey",
+        "Content-Type": "application/json",
+      },
+      body: jsonEncode(openAiModel.toJson()),
+    );
+    print(resp.body);
+    if (resp.statusCode == 200) {
+      final jsonData = jsonDecode(utf8.decode(resp.bodyBytes)) as Map;
+      String role = jsonData['choices'][0]['message']['role'];
+      String content = jsonData['choices'][0]['message']['content'];
+      _historyList.last =
+          _historyList.last.copyWith(role: role, content: content);
+    }
+    setState(() {
+      _scrollDown();
+    });
+  }
+
+  Stream requestChatStream(String text) async* {
+    ChatCompletionModel openAiModel = ChatCompletionModel(
+        model: "gpt-3.5-turbo",
+        messages: [
+          Message(role: "system", content: "You are a helpful assistant."),
+          ..._historyList,
+        ],
+        stream: true);
+
+    final url = Uri.http('api.openai.com', '/v1/chat/completions');
+    final request = http.Request('POST', url)
+      ..headers.addAll(
+        {
+          "Authorization": "Baerer ${apiKey}",
+          "Content-Type": 'application/json; charset=UTF-8',
+          'Connection': 'keep-alive',
+          'Accept': '*/*',
+          'Accept-Encoding': 'gzip, deflate, br',
+        },
+      );
+    request.body = jsonEncode(openAiModel.toJson());
+
+    final resp = await http.Client().send(request);
+    final byteStream = resp.stream.asyncExpand(
+      (event) => Rx.timer(
+        event,
+        const Duration(milliseconds: 50),
+      ),
+    );
+    final statusCode = resp.statusCode;
+    var respText = '';
+    await for (final byte in byteStream) {
+      var decode = utf8.decode(byte, allowMalformed: false);
+      final strings = decode.split("data: ");
+      for (final string in strings) {
+        final trimmedString = string.trim();
+        if (trimmedString.isNotEmpty && !trimmedString.endsWith('[DONE]')) {
+          final map = jsonDecode(trimmedString) as Map;
+          final choices = map['choices'] as List;
+          final delta = choices[0]['delta'] as Map;
+          if (delta['content'] != null) {
+            final content = delta['content'] as String;
+            respText += content;
+            setState(() {
+              streamText = respText;
+            });
+            yield content;
+          }
+        }
+      }
+    }
+
+    if (respText.isNotEmpty) {
+      setState(() {});
+    }
+  }
+
   @override
   void initState() {
     super.initState();
@@ -74,6 +179,28 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
     scrollController.dispose();
 
     super.dispose();
+  }
+
+  Future clearChat() async {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: Text("새로운 대화 시작"),
+        content: Text("신규 대화를 생성하시겠어요?"),
+        actions: [
+          TextButton(
+            onPressed: () {
+              Navigator.of(context).pop();
+              setState(() {
+                messageTextController.clear();
+                _historyList.clear();
+              });
+            },
+            child: Text("네"),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -102,6 +229,9 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                           ),
                         ),
                         PopupMenuItem(
+                          onTap: () {
+                            clearChat();
+                          },
                           child: ListTile(
                             title: const Text("새로운 채팅"),
                           ),
@@ -112,77 +242,86 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 ),
               ),
               Expanded(
-                child: Center(
-                  child: AnimatedBuilder(
-                    animation: _characterCount,
-                    builder: (BuildContext context, Widget? chi) {
-                      String text =
-                          _currentString.substring(0, _characterCount.value);
-                      return Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            text,
-                            style: TextStyle(
-                              fontWeight: FontWeight.bold,
-                              fontSize: 24,
-                            ),
+                  child: _historyList.isEmpty
+                      ? Center(
+                          child: AnimatedBuilder(
+                            animation: _characterCount,
+                            builder: (BuildContext context, Widget? chi) {
+                              String text = _currentString.substring(
+                                  0, _characterCount.value);
+                              return Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    text,
+                                    style: TextStyle(
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 24,
+                                    ),
+                                  ),
+                                  CircleAvatar(
+                                    radius: 8,
+                                    backgroundColor: Colors.orange[200],
+                                  )
+                                ],
+                              );
+                            },
                           ),
-                          CircleAvatar(
-                            radius: 8,
-                            backgroundColor: Colors.orange[200],
-                          )
-                        ],
-                      );
-                    },
-                    //color: Colors.blue,
-                    // child: ListView.builder(
-                    //   itemCount: 100,
-                    //   itemBuilder: (context, index) {
-                    //     if (index % 2 == 0) {
-                    //       return Padding(
-                    //         padding: const EdgeInsets.symmetric(vertical: 16.0),
-                    //         child: Row(
-                    //           children: [
-                    //             CircleAvatar(),
-                    //             SizedBox(
-                    //               width: 8,
-                    //             ),
-                    //             Expanded(
-                    //               child: Column(
-                    //                 crossAxisAlignment: CrossAxisAlignment.start,
-                    //                 children: [
-                    //                   Text('User'),
-                    //                   Text('message'),
-                    //                 ],
-                    //               ),
-                    //             )
-                    //           ],
-                    //         ),
-                    //       );
-                    //     }
-                    //     return Row(
-                    //       children: [
-                    //         CircleAvatar(
-                    //           backgroundColor: Colors.teal,
-                    //         ),
-                    //         SizedBox(width: 8.0),
-                    //         Expanded(
-                    //           child: Column(
-                    //             crossAxisAlignment: CrossAxisAlignment.start,
-                    //             children: [
-                    //               Text("ChatGPT"),
-                    //               Text("message by ChatGPT"),
-                    //             ],
-                    //           ),
-                    //         )
-                    //       ],
-                    //     );
-                    //   },
-                    // ),
-                  ),
-                ),
-              ),
+                        )
+                      : GestureDetector(
+                          onTap: () => FocusScope.of(context).unfocus(),
+                          child: ListView.builder(
+                            controller: scrollController,
+                            itemCount: _historyList.length,
+                            itemBuilder: (context, index) {
+                              if (_historyList[index].role == 'user') {
+                                return Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      vertical: 16.0),
+                                  child: Row(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      CircleAvatar(),
+                                      SizedBox(
+                                        width: 8,
+                                      ),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(_historyList[index].role),
+                                            Text(_historyList[index].content),
+                                          ],
+                                        ),
+                                      )
+                                    ],
+                                  ),
+                                );
+                              }
+                              return Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  CircleAvatar(
+                                    backgroundColor: Colors.teal,
+                                  ),
+                                  SizedBox(width: 8.0),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(_historyList[index].role),
+                                        Text(_historyList[index].content),
+                                      ],
+                                    ),
+                                  )
+                                ],
+                              );
+                            },
+                          ),
+                        )),
               Dismissible(
                 key: Key("chat-bar"),
                 direction: DismissDirection.startToEnd,
@@ -194,12 +333,13 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                 background: const Row(
                   crossAxisAlignment: CrossAxisAlignment.center,
                   children: [
-                    Text("New CHat"),
+                    Text("New Chat"),
                   ],
                 ),
                 confirmDismiss: (d) async {
                   if (d == DismissDirection.startToEnd) {
-                    //TODO logic confirmDismiss
+                    if (_historyList.isEmpty) return;
+                    clearChat();
                   }
                 },
                 child: Row(
@@ -220,7 +360,43 @@ class _MyHomePageState extends State<MyHomePage> with TickerProviderStateMixin {
                     ),
                     IconButton(
                       iconSize: 42,
-                      onPressed: () {},
+                      onPressed: () async {
+                        if (messageTextController.text.isEmpty) {
+                          return;
+                        }
+                        setState(() {
+                          _historyList.add(
+                            Message(
+                              role: "user",
+                              content: messageTextController.text.trim(),
+                            ),
+                          );
+                          _historyList.add(
+                            Message(
+                              role: "assistant",
+                              content: "",
+                            ),
+                          );
+                        });
+                        try {
+                          // await requestChat(messageTextController.text.trim());
+                          var text = '';
+                          final stream = requestChatStream(
+                              messageTextController.text.trim());
+                          await for (final textChunk in stream) {
+                            text += textChunk;
+                            setState(() {
+                              _historyList.last =
+                                  _historyList.last.copyWith(content: text);
+                              _scrollDown();
+                            });
+                          }
+                          messageTextController.clear();
+                          streamText = '';
+                        } catch (e) {
+                          print(e.toString());
+                        }
+                      },
                       icon: Icon(Icons.arrow_circle_up),
                     )
                   ],
